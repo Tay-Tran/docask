@@ -2,7 +2,7 @@
 
 Upload a PDF and ask questions about it. Every answer cites the passages and pages it came from.
 
-- **Live demo:** _link to be added after deploy_
+- **Live demo:** https://docask.vercel.app
 - **Demo GIF:** _to be added_
 
 DocAsk is a small SaaS built as a portfolio project. It covers auth, per-user data isolation, file storage, vector search, an LLM integration and plan limits.
