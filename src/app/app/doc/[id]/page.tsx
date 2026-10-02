@@ -14,7 +14,7 @@ export default async function DocPage(props: PageProps<"/app/doc/[id]">) {
     .select("question, answer, sources, mode")
     .eq("document_id", id)
     .neq("answer", "")
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
     .limit(50);
 
   return (
@@ -22,7 +22,7 @@ export default async function DocPage(props: PageProps<"/app/doc/[id]">) {
       <Link href="/app" className="text-sm text-indigo-700 hover:underline">← All documents</Link>
       <h1 className="text-2xl font-semibold">{doc.title}</h1>
       <p className="text-sm text-gray-500">{doc.page_count} pages</p>
-      <Chat documentId={doc.id} initial={(history ?? []) as Turn[]} />
+      <Chat documentId={doc.id} initial={[...((history ?? []) as Turn[])].reverse()} />
     </div>
   );
 }

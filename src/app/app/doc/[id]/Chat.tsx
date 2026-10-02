@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type SourceRef = { n: number; page: number; content: string };
 export type Turn = { question: string; answer: string; sources: SourceRef[]; mode: "ai" | "demo" };
@@ -17,43 +17,76 @@ export function Chat({ documentId, initial }: { documentId: string; initial: Tur
   async function ask(q: string) {
     const text = q.trim();
     if (!text || busy) return;
+    const index = turns.length;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     setBusy(true);
     setError("");
     setQuestion("");
-    const res = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentId, question: text }) });
-    if (!res.ok || !res.body) {
-      setError((await res.json().catch(() => ({}))).error ?? "Something went wrong.");
-      setBusy(false);
-      return;
-    }
-    // Placeholder turn so "Thinking…" shows before the first token arrives.
-    setTurns((prev) => [...prev, { question: text, answer: "", sources: [], mode: "ai" }]);
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let meta: { mode: Turn["mode"]; sources: SourceRef[] } | null = null;
-    const index = turns.length;
-
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      if (!meta) {
-        const nl = buffer.indexOf("\n");
-        if (nl === -1) continue;
-        meta = JSON.parse(buffer.slice(0, nl));
-        buffer = buffer.slice(nl + 1);
+    try {
+      const res = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentId, question: text }) });
+      if (!res.ok || !res.body) {
+        setError((await res.json().catch(() => ({}))).error ?? "Something went wrong.");
+        setQuestion(text);
+        return;
       }
-      const answer = buffer;
-      setTurns((prev) => {
-        const next = prev.slice(0, index);
-        next.push({ question: text, answer, sources: meta!.sources, mode: meta!.mode });
-        return next;
-      });
+      // Placeholder turn so "Thinking…" shows before the first token arrives.
+      setTurns((prev) => [...prev.slice(0, index), { question: text, answer: "", sources: [], mode: "ai" }]);
+
+      reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let meta: { mode: Turn["mode"]; sources: SourceRef[] } | null = null;
+      const update = () => {
+        if (!meta) return;
+        const m = meta;
+        const answer = buffer;
+        setTurns((prev) => [...prev.slice(0, index), { question: text, answer, sources: m.sources, mode: m.mode }]);
+      };
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        if (!meta) {
+          const nl = buffer.indexOf("\n");
+          if (nl === -1) continue;
+          meta = JSON.parse(buffer.slice(0, nl));
+          buffer = buffer.slice(nl + 1);
+        }
+        update();
+      }
+      buffer += decoder.decode();
+      if (!meta) {
+        setError("No answer received. Please try again.");
+        setTurns((prev) => prev.slice(0, index));
+        setQuestion(text);
+        return;
+      }
+      update();
+    } catch {
+      setError("Connection problem. Please try again.");
+      setTurns((prev) => prev.slice(0, index));
+      setQuestion(text);
+    } finally {
+      reader?.cancel().catch(() => {});
+      setBusy(false);
     }
-    setBusy(false);
   }
+
+  const endRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [turns]);
+  useEffect(() => {
+    if (!open) return;
+    closeRef.current?.focus();
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setOpen(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
 
   return (
     <div className="space-y-4">
@@ -62,7 +95,7 @@ export function Chat({ documentId, initial }: { documentId: string; initial: Tur
           <p className="text-sm text-gray-600">Try asking:</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {STARTERS.map((s) => (
-              <button key={s} onClick={() => ask(s)} className="rounded-full bg-indigo-50 px-3 py-1.5 text-sm text-indigo-800 hover:bg-indigo-100">{s}</button>
+              <button type="button" key={s} onClick={() => ask(s)} className="rounded-full bg-indigo-50 px-3 py-1.5 text-sm text-indigo-800 hover:bg-indigo-100">{s}</button>
             ))}
           </div>
         </div>
@@ -78,7 +111,7 @@ export function Chat({ documentId, initial }: { documentId: string; initial: Tur
                 const n = part.match(/^\[(\d+)\]$/)?.[1];
                 const src = n ? t.sources.find((s) => s.n === Number(n)) : undefined;
                 return src ? (
-                  <button key={j} onClick={() => setOpen(src)} className="mx-0.5 rounded bg-indigo-100 px-1 text-xs font-medium text-indigo-800 hover:bg-indigo-200" title={`Page ${src.page}`}>
+                  <button type="button" key={j} onClick={() => setOpen(src)} className="mx-0.5 rounded bg-indigo-100 px-1 text-xs font-medium text-indigo-800 hover:bg-indigo-200" title={`Page ${src.page}`}>
                     {part}
                   </button>
                 ) : (
@@ -90,6 +123,8 @@ export function Chat({ documentId, initial }: { documentId: string; initial: Tur
           </div>
         </div>
       ))}
+
+      <div ref={endRef} />
 
       {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
 
@@ -104,11 +139,11 @@ export function Chat({ documentId, initial }: { documentId: string; initial: Tur
       </form>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 sm:items-center" onClick={() => setOpen(null)}>
-          <div className="max-h-[70vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 sm:max-w-lg sm:rounded-2xl" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={`Source ${open.n}`}>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 sm:items-stretch sm:justify-end" onClick={() => setOpen(null)}>
+          <div className="max-h-[70vh] w-full sm:max-h-none overflow-y-auto rounded-t-2xl bg-white p-5 sm:h-full sm:max-w-md sm:rounded-none" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={`Source ${open.n}`}>
             <p className="text-xs font-medium text-indigo-700">Source [{open.n}] · page {open.page}</p>
             <p className="mt-2 whitespace-pre-wrap text-sm">{open.content}</p>
-            <button onClick={() => setOpen(null)} className="mt-4 text-sm text-gray-600 hover:text-gray-900">Close</button>
+            <button type="button" ref={closeRef} onClick={() => setOpen(null)} className="mt-4 text-sm text-gray-600 hover:text-gray-900">Close</button>
           </div>
         </div>
       )}
