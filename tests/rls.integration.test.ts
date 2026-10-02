@@ -14,6 +14,11 @@ const embedding = JSON.stringify(Array(384).fill(0.01));
 let docB = "";
 let pathB = "";
 
+function expectRls(error: { code?: string; message?: string } | null) {
+  expect(error).not.toBeNull();
+  expect(error!.code).toBe("42501");
+}
+
 async function makeUser(tag: string) {
   const email = `rls-${tag}-${Date.now()}@docask.test`;
   const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
@@ -71,7 +76,7 @@ describe("RLS isolation", () => {
   it("anon cannot call match_chunks or read documents", async () => {
     const anon = createClient(url, publishable, { auth: { persistSession: false } });
     const rpc = await anon.rpc("match_chunks", { query_embedding: embedding, p_document_id: docB, match_count: 5 });
-    expect(rpc.error !== null || (rpc.data ?? []).length === 0).toBe(true);
+    expect(rpc.error).not.toBeNull(); // execute revoked from anon
     const docs = await anon.from("documents").select("id").eq("id", docB);
     expect(docs.error !== null || (docs.data ?? []).length === 0).toBe(true);
   });
@@ -86,24 +91,31 @@ describe("RLS isolation", () => {
   it("a user cannot insert a document as ready or for someone else", async () => {
     const a = users[0];
     const asReady = await a.client.from("documents").insert({ title: "x", storage_path: `${a.id}/${crypto.randomUUID()}.pdf`, size_bytes: 1, status: "ready" });
-    expect(asReady.error).not.toBeNull();
+    expectRls(asReady.error);
     const forB = await a.client.from("documents").insert({ user_id: users[1].id, title: "x", storage_path: `${users[1].id}/${crypto.randomUUID()}.pdf`, size_bytes: 1 });
-    expect(forB.error).not.toBeNull();
+    expectRls(forB.error);
   });
 
   it("a user cannot insert a document whose storage_path escapes their folder", async () => {
     const a = users[0];
     const b = users[1];
     const r = await a.client.from("documents").insert({ title: "x", storage_path: `${a.id}/../${b.id}/x.pdf`, size_bytes: 1 });
-    expect(r.error).not.toBeNull();
+    expectRls(r.error);
     const own = await a.client.from("documents").insert({ title: "x", storage_path: `${a.id}/${crypto.randomUUID()}.pdf`, size_bytes: 1 });
     expect(own.error).toBeNull(); // sanity: the well-formed path is accepted
   });
 
   it("a user cannot write chunks or questions directly", async () => {
     const a = users[0];
+    // Cross-owner targets (rejected by FK or policy) ...
     expect((await a.client.from("questions").insert({ user_id: a.id, document_id: docB, question: "q", answer: "a", mode: "ai" })).error).not.toBeNull();
     expect((await a.client.from("chunks").insert({ document_id: docB, user_id: a.id, page: 1, content: "x", embedding: JSON.stringify(Array(384).fill(0)) })).error).not.toBeNull();
+    // ... and same-owner targets, which only the missing insert policy can reject.
+    const docA = crypto.randomUUID();
+    const d = await admin.from("documents").insert({ id: docA, user_id: a.id, title: "A own", storage_path: `${a.id}/${docA}.pdf`, size_bytes: 5, status: "ready" });
+    expect(d.error).toBeNull();
+    expectRls((await a.client.from("chunks").insert({ document_id: docA, user_id: a.id, page: 1, content: "x", embedding: JSON.stringify(Array(384).fill(0)) })).error);
+    expectRls((await a.client.from("questions").insert({ user_id: a.id, document_id: docA, question: "q", answer: "a", mode: "ai" })).error);
   });
 
   it("deleting a document keeps its questions (document_id becomes null)", async () => {
