@@ -66,7 +66,13 @@ npx supabase functions deploy embed
 npm run dev -- -p 3005
 ```
 
-Open http://localhost:3005. Port 3005 matches `site_url` in `supabase/config.toml`.
+Open http://localhost:3005. When using a hosted Supabase project, add `http://localhost:3005/auth/callback` to Authentication → URL Configuration → Redirect URLs.
+
+Notes:
+
+- The magic link must be opened in the same browser that requested it.
+- `npm run test:rls` needs the Email provider's password sign-in enabled (it is on by default).
+- A document stuck in "processing" for more than 2 minutes (for example after a timeout) shows a Retry button.
 
 Environment variables (see `.env.example`):
 
