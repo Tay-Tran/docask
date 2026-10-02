@@ -31,23 +31,26 @@ create table public.documents (
   error text,
   created_at timestamptz not null default now()
 );
+alter table public.documents add constraint documents_id_user_uniq unique (id, user_id);
+alter table public.documents add constraint documents_storage_path_key unique (storage_path);
 create index documents_user_idx on public.documents (user_id, created_at desc);
 alter table public.documents enable row level security;
 create policy "documents: read own" on public.documents for select to authenticated using (user_id = (select auth.uid()));
 create policy "documents: insert own as processing" on public.documents for insert to authenticated
   with check (user_id = (select auth.uid()) and status = 'processing' and page_count is null and error is null
-              and storage_path like (select auth.uid())::text || '/%');
+              and storage_path ~ ('^' || (select auth.uid())::text || '/[A-Za-z0-9_-]+\.pdf$'));
 create policy "documents: delete own" on public.documents for delete to authenticated using (user_id = (select auth.uid()));
 -- no update policy: status/page_count/error are written by the server only
 
 -- chunks ---------------------------------------------------------------
 create table public.chunks (
   id bigint generated always as identity primary key,
-  document_id uuid not null references public.documents(id) on delete cascade,
+  document_id uuid not null,
   user_id uuid not null references auth.users(id) on delete cascade,
   page int not null,
   content text not null,
-  embedding extensions.vector(384) not null
+  embedding extensions.vector(384) not null,
+  foreign key (document_id, user_id) references public.documents(id, user_id) on delete cascade
 );
 create index chunks_document_idx on public.chunks (document_id);
 create index chunks_embedding_idx on public.chunks using hnsw (embedding extensions.vector_cosine_ops);
@@ -58,12 +61,13 @@ create policy "chunks: read own" on public.chunks for select to authenticated us
 create table public.questions (
   id bigint generated always as identity primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
-  document_id uuid not null references public.documents(id) on delete cascade,
+  document_id uuid,
   question text not null,
   answer text not null,
   sources jsonb not null default '[]',
   mode text not null check (mode in ('ai', 'demo')),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  foreign key (document_id, user_id) references public.documents(id, user_id) on delete set null (document_id)
 );
 create index questions_user_day_idx on public.questions (user_id, created_at);
 create index questions_document_idx on public.questions (document_id, created_at);
@@ -78,7 +82,7 @@ language sql stable security invoker set search_path = '' as $$
   from public.chunks c
   where c.document_id = p_document_id
   order by c.embedding operator(extensions.<=>) query_embedding
-  limit least(match_count, 20);
+  limit greatest(1, least(coalesce(match_count, 5), 20));
 $$;
 
 -- storage --------------------------------------------------------------
@@ -91,3 +95,7 @@ create policy "pdfs: upload own" on storage.objects for insert to authenticated
   with check (bucket_id = 'pdfs' and (storage.foldername(name))[1] = (select auth.uid())::text);
 create policy "pdfs: delete own" on storage.objects for delete to authenticated
   using (bucket_id = 'pdfs' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+revoke execute on function public.handle_new_user() from public, anon, authenticated;
+revoke execute on function public.match_chunks(extensions.vector, uuid, int) from public, anon;
+grant execute on function public.match_chunks(extensions.vector, uuid, int) to authenticated;
