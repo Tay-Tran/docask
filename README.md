@@ -3,6 +3,7 @@
 Upload a PDF and ask questions about it. Every answer cites the passages and pages it came from.
 
 - **Live demo:** https://docask.vercel.app
+
 ![DocAsk demo: ask a question about a PDF and open the cited passage](docs/demo.gif)
 
 DocAsk is a small SaaS built as a portfolio project. It covers auth, per-user data isolation, file storage, vector search, an LLM integration and plan limits.
