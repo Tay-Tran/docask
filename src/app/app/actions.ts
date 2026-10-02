@@ -8,6 +8,7 @@ export async function deleteDocument(id: string) {
   const { data: doc } = await supabase.from("documents").select("storage_path").eq("id", id).single();
   if (!doc) return;
   await supabase.storage.from("pdfs").remove([doc.storage_path]);
-  await supabase.from("documents").delete().eq("id", id); // RLS: own rows only; chunks/questions cascade
+  const { error } = await supabase.from("documents").delete().eq("id", id); // RLS: own rows only; chunks/questions cascade
+  if (error) throw new Error("Could not delete the document. Please try again.");
   revalidatePath("/app");
 }

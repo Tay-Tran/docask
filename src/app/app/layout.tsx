@@ -5,7 +5,11 @@ import { countDocuments, countQuestionsToday, getPlan } from "@/lib/usage";
 
 export default async function AppLayout({ children }: LayoutProps<"/app">) {
   const { supabase, user } = await requireUser();
-  const [plan, docs, questions] = await Promise.all([getPlan(supabase, user.id), countDocuments(supabase), countQuestionsToday(supabase)]);
+  const [plan, docs, questions] = await Promise.all([
+    getPlan(supabase, user.id).catch(() => "free" as const),
+    countDocuments(supabase).catch(() => null),
+    countQuestionsToday(supabase).catch(() => null),
+  ]);
   const limits = PLAN_LIMITS[plan];
 
   return (
@@ -14,7 +18,7 @@ export default async function AppLayout({ children }: LayoutProps<"/app">) {
         <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-2 px-4 py-3">
           <Link href="/app" className="font-semibold text-indigo-700">DocAsk</Link>
           <p className="text-xs text-gray-600">
-            {docs}/{limits.maxDocuments} documents · {questions}/{limits.questionsPerDay} questions today ·{" "}
+            {docs ?? "–"}/{limits.maxDocuments} documents · {questions ?? "–"}/{limits.questionsPerDay} questions today ·{" "}
             <span className="font-medium uppercase">{plan}</span>
           </p>
           <form action="/auth/signout" method="post">

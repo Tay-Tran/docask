@@ -23,10 +23,16 @@ export function UploadBox({ userId, maxBytes, disabledReason }: { userId: string
       const { error: upErr } = await supabase.storage.from("pdfs").upload(path, file, { contentType: "application/pdf" });
       if (upErr) throw new Error(upErr.message);
       const { error: insErr } = await supabase.from("documents").insert({ id, title: file.name.replace(/\.pdf$/i, "").slice(0, 200) || "Untitled", storage_path: path, size_bytes: file.size });
-      if (insErr) throw new Error(insErr.message);
+      if (insErr) {
+        await supabase.storage.from("pdfs").remove([path]).catch(() => undefined);
+        throw new Error(insErr.message);
+      }
       router.refresh();
       const res = await fetch(`/api/documents/${id}/process`, { method: "POST" });
-      if (!res.ok) setError((await res.json()).error ?? "Processing failed.");
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setError(body?.error ?? `Processing failed (${res.status}).`);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed.");
     } finally {
@@ -38,7 +44,7 @@ export function UploadBox({ userId, maxBytes, disabledReason }: { userId: string
   return (
     <div
       onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f && !disabledReason) upload(f); }}
+      onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f && !disabledReason && !busy) upload(f); }}
       className="rounded-xl border-2 border-dashed border-indigo-200 bg-white p-8 text-center"
     >
       <p className="font-medium">{busy ? "Uploading and indexing…" : "Drop a PDF here"}</p>
