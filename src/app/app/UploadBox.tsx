@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 
-export function UploadBox({ userId, maxBytes, disabledReason }: { userId: string; maxBytes: number; disabledReason?: string }) {
+export function UploadBox({ userId, maxBytes, maxPages, disabledReason }: { userId: string; maxBytes: number; maxPages: number; disabledReason?: string }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -48,7 +48,7 @@ export function UploadBox({ userId, maxBytes, disabledReason }: { userId: string
       className="rounded-xl border-2 border-dashed border-indigo-200 bg-white p-8 text-center"
     >
       <p className="font-medium">{busy ? "Uploading and indexing…" : "Drop a PDF here"}</p>
-      <p className="mt-1 text-sm text-gray-500">Max {maxBytes / 1024 / 1024} MB · text-based PDFs only</p>
+      <p className="mt-1 text-sm text-gray-500">Max {maxBytes / 1024 / 1024} MB · up to {maxPages} pages · text-based PDFs only</p>
       <button
         type="button" disabled={busy || !!disabledReason} onClick={() => input.current?.click()}
         className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"

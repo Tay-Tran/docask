@@ -17,7 +17,7 @@ export default async function DocumentsPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Your documents</h1>
-      <UploadBox userId={user.id} maxBytes={PLAN_LIMITS[plan].maxFileBytes} disabledReason={limit.ok ? undefined : limit.reason} />
+      <UploadBox userId={user.id} maxBytes={PLAN_LIMITS[plan].maxFileBytes} maxPages={PLAN_LIMITS[plan].maxPages} disabledReason={limit.ok ? undefined : limit.reason} />
       {error ? <p className="text-sm text-red-600">Could not load documents. Refresh to try again.</p> : <DocumentList documents={documents} />}
     </div>
   );

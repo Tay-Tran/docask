@@ -11,15 +11,20 @@ export function LoginForm() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setState("sending");
-    const { error } = await createBrowserSupabase().auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
-    });
-    if (error) {
-      setError(error.message);
+    try {
+      const { error } = await createBrowserSupabase().auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+      });
+      if (error) {
+        setError(error.message);
+        setState("error");
+      } else {
+        setState("sent");
+      }
+    } catch {
+      setError("Network error. Please check your connection and try again.");
       setState("error");
-    } else {
-      setState("sent");
     }
   }
 
