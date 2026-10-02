@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
+import { isStale } from "@/lib/stale";
 import { deleteDocument } from "./actions";
 
 export type DocumentRow = { id: string; title: string; status: "processing" | "ready" | "failed"; error: string | null; page_count: number | null; created_at: string };
@@ -18,12 +19,15 @@ export function DocumentList({ documents }: { documents: DocumentRow[] }) {
   const [pending, startTransition] = useTransition();
   const [retrying, setRetrying] = useState<string | null>(null);
   const [error, setError] = useState("");
+  // Date.now() differs between server and client, so staleness is only computed after mount.
+  const [now, setNow] = useState<number | null>(null);
+  const isStuck = (d: DocumentRow) => d.status === "processing" && now !== null && isStale(d.created_at, now);
 
   async function retry(id: string) {
     setError("");
     setRetrying(id);
     try {
-      const res = await fetch(`/api/documents/${id}/process`, { method: "POST" });
+      const res = await fetch(`/api/documents/${id}/process`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ retry: true }) });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         setError(body?.error ?? `Processing failed (${res.status}).`);
@@ -41,19 +45,33 @@ export function DocumentList({ documents }: { documents: DocumentRow[] }) {
     setError("");
     startTransition(async () => {
       try {
-        await deleteDocument(d.id);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Delete failed.");
+        const result = await deleteDocument(d.id);
+        if (result?.error) setError(result.error);
+      } catch {
+        setError("Delete failed. Please try again.");
       }
     });
   }
 
-  // Poll while anything is processing.
+  // Tick the clock while anything is processing so rows can become stale.
+  const anyProcessing = documents.some((d) => d.status === "processing");
   useEffect(() => {
-    if (!documents.some((d) => d.status === "processing")) return;
+    if (!anyProcessing) return;
+    const first = setTimeout(() => setNow(Date.now()), 0);
+    const t = setInterval(() => setNow(Date.now()), 10000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(t);
+    };
+  }, [anyProcessing]);
+
+  // Poll only while some row is freshly processing (stale rows get a Retry instead).
+  const anyFresh = documents.some((d) => d.status === "processing" && !isStuck(d));
+  useEffect(() => {
+    if (!anyFresh) return;
     const t = setInterval(() => router.refresh(), 3000);
     return () => clearInterval(t);
-  }, [documents, router]);
+  }, [anyFresh, router]);
 
   if (documents.length === 0) {
     return (
@@ -82,7 +100,8 @@ export function DocumentList({ documents }: { documents: DocumentRow[] }) {
             {d.status === "failed" && d.error && <p className="mt-1 text-sm text-red-600">{d.error}</p>}
           </div>
           <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${badge[d.status]}`}>{d.status}</span>
-          {d.status === "failed" && (
+          {isStuck(d) && <span className="text-xs text-gray-500">Taking too long?</span>}
+          {(d.status === "failed" || isStuck(d)) && (
             <button
               disabled={retrying === d.id}
               onClick={() => retry(d.id)}
