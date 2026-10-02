@@ -7,16 +7,18 @@ export async function getPlan(supabase: SupabaseClient, userId: string): Promise
 }
 
 export async function countDocuments(supabase: SupabaseClient): Promise<number> {
-  const { count } = await supabase.from("documents").select("id", { count: "exact", head: true });
+  const { count, error } = await supabase.from("documents").select("id", { count: "exact", head: true });
+  if (error) throw error;
   return count ?? 0;
 }
 
 export async function countQuestionsToday(supabase: SupabaseClient): Promise<number> {
   const startOfDayUtc = new Date();
   startOfDayUtc.setUTCHours(0, 0, 0, 0);
-  const { count } = await supabase
+  const { count, error } = await supabase
     .from("questions")
     .select("id", { count: "exact", head: true })
     .gte("created_at", startOfDayUtc.toISOString());
+  if (error) throw error;
   return count ?? 0;
 }
